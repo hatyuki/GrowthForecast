@@ -37,8 +37,8 @@ sub on_connect {
         my $number_type = $self->number_type;
         my $complex_number_type = $self->complex_number_type;
 
-        $dbh->do(<<'EOF');
-DO $$
+        $dbh->do(<<EOF);
+DO \$\$
 BEGIN
 
 IF NOT EXISTS (
@@ -68,15 +68,15 @@ IF NOT EXISTS (
         created_at   BIGINT       NOT NULL,
         updated_at   BIGINT       NOT NULL,
         UNIQUE  (service_name, section_name, graph_name)
-    )
+    );
 END IF;
 
-END$$
+END\$\$;
 EOF
 
         unless ( $self->{disable_subtract} ) {
-            $dbh->do(<<'EOF');
-DO $$
+            $dbh->do(<<EOF);
+DO \$\$
 BEGIN
 
 IF NOT EXISTS (
@@ -91,14 +91,14 @@ IF NOT EXISTS (
         subtract     $number_type,
         updated_at   BIGINT       NOT NULL,
         PRIMARY KEY  (graph_id)
-    )
+    );
 END IF;
 
-END$$
+END\$\$
 EOF
 
-            $dbh->do(<<'EOF');
-DO $$
+            $dbh->do(<<EOF);
+DO \$\$
 BEGIN
 
 IF NOT EXISTS (
@@ -113,15 +113,15 @@ IF NOT EXISTS (
         subtract     $number_type,
         updated_at   BIGINT       NOT NULL,
         PRIMARY KEY  (graph_id)
-    )
+    );
 END IF;
 
-END$$
+END\$\$
 EOF
         }
 
-        $dbh->do(<<'EOF');
-DO $$
+        $dbh->do(<<EOF);
+DO \$\$
 BEGIN
 
 IF NOT EXISTS (
@@ -142,14 +142,14 @@ IF NOT EXISTS (
         created_at   BIGINT       NOT NULL,
         updated_at   BIGINT       NOT NULL,
         UNIQUE  (service_name, section_name, graph_name)
-    )
+    );
 END IF;
 
-END$$
+END\$\$
 EOF
 
-        $dbh->do(<<'EOF');
-DO $$
+        $dbh->do(<<EOF);
+DO \$\$
 BEGIN
 
 IF NOT EXISTS (
@@ -167,11 +167,11 @@ IF NOT EXISTS (
     );
 END IF;
 
-END$$
+END\$\$
 EOF
 
-        $dbh->do(<<'EOF');
-DO $$
+        $dbh->do(<<EOF);
+DO \$\$
 BEGIN
 
 IF NOT EXISTS (
@@ -183,7 +183,7 @@ IF NOT EXISTS (
     CREATE INDEX time_graph_path ON vrules(time, graph_path);
 END IF;
 
-END$$
+END\$\$
 EOF
 
         return;
