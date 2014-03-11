@@ -18,7 +18,13 @@ sub new {
     my $data_dir = shift;
     my $float_number = shift;
     my $disable_subtract = shift;
-    bless { data_dir => $data_dir, float_number => $float_number, disable_subtract => $disable_subtract }, $class;
+
+    return bless +{
+        data_dir         => $data_dir,
+        float_number     => $float_number,
+        disable_subtract => $disable_subtract,
+        for_update       => 0,
+    }, $class;
 }
 
 sub number_type {
@@ -186,7 +192,7 @@ sub get_by_id_for_rrdupdate_short {
     unless ( $self->{disable_subtract} ) {
         $dbh->begin_work;
         my $subtract;
-        my $for_update = ( $dbh->connect_info->[0] =~ /^(?i:dbi):mysql:/ ) ? ' FOR UPDATE' : '';
+        my $for_update = $self->{for_update} ? ' FOR UPDATE' : '';
         my $prev = $dbh->select_row(
             'SELECT * FROM prev_short_graphs WHERE graph_id = ?'.$for_update,
             $data->{id}
@@ -234,7 +240,7 @@ sub get_by_id_for_rrdupdate {
         $dbh->begin_work;
         my $subtract;
 
-        my $for_update = ( $dbh->connect_info->[0] =~ /^(?i:dbi):mysql:/ ) ? ' FOR UPDATE' : '';
+        my $for_update = $self->{for_update} ? ' FOR UPDATE' : '';
         my $prev = $dbh->select_row(
             'SELECT * FROM prev_graphs WHERE graph_id = ?' . $for_update,
             $data->{id}
@@ -275,7 +281,7 @@ sub update {
     my $dbh = $self->dbh;
     $dbh->begin_work;
 
-    my $for_update = ( $dbh->connect_info->[0] =~ /^(?i:dbi):mysql:/ ) ? ' FOR UPDATE' : '';
+    my $for_update = $self->{for_update} ? ' FOR UPDATE' : '';
     my $data = $self->dbh->select_row(
         'SELECT * FROM graphs WHERE service_name = ? AND section_name = ? AND graph_name = ?' . $for_update,
         $service, $section, $graph
@@ -609,8 +615,8 @@ sub get_vrule {
         push @path, "/".join("/",@gp[0..$i]); 
     }
     my $rows = $self->dbh->select_all(
-        'SELECT * FROM vrules WHERE (time BETWEEN ? and ?) AND graph_path in ("/"'.$ph.')',
-        $from_time, $to_time, @path
+        'SELECT * FROM vrules WHERE (time BETWEEN ? and ?) AND graph_path in (?'.$ph.')',
+        $from_time, $to_time, '/', @path
     );
     push @vrules, @$rows;
 

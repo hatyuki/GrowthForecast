@@ -11,7 +11,13 @@ sub new {
     my $mysql = shift;
     my $float_number = shift;
     my $disable_subtract = shift;
-    bless { mysql => $mysql, float_number => $float_number, disable_subtract => $disable_subtract }, $class;
+
+    return bless +{
+        mysql            => $mysql,
+        float_number     => $float_number,
+        disable_subtract => $disable_subtract,
+        for_update       => 1,
+    }, $class;
 }
 
 sub number_type {

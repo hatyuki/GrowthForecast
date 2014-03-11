@@ -9,15 +9,20 @@ use Time::Piece;
 use GrowthForecast::Data;
 use GrowthForecast::RRD;
 use Log::Minimal;
-use Class::Accessor::Lite ( rw => [qw/short mysql data_dir float_number rrdcached disable_subtract/] );
+use Class::Accessor::Lite ( rw => [qw/short mysql pgsql data_dir float_number rrdcached disable_subtract/] );
 use CGI;
 
 sub data {
     my $self = shift;
-    $self->{__data} ||= 
-        $self->mysql 
-            ? GrowthForecast::Data::MySQL->new($self->mysql, $self->float_number, $self->disable_subtract)
-            : GrowthForecast::Data->new($self->data_dir, $self->float_number, $self->disable_subtract);
+    $self->{__data} ||= do {
+        if ($self->mysql) {
+            GrowthForecast::Data::MySQL->new($self->mysql, $self->float_number, $self->disable_subtract)
+        } elsif ($self->pgsql) {
+            GrowthForecast::Data::Pg->new($self->pgsql, $self->float_number, $self->disable_subtract)
+        } else {
+            GrowthForecast::Data->new($self->data_dir, $self->float_number, $self->disable_subtract);
+        }
+    };
     $self->{__data};
 }
 

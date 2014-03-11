@@ -38,6 +38,7 @@ GetOptions(
     'disable-subtract' => \my $disable_subtract,
     'enable-float-number' => \my $enable_float_number,
     'with-mysql=s' => \my $mysql,
+    'with-pgsql=s' => \my $pgsql,
     'data-dir=s' => \my $data_dir,
     'log-format=s' => \my $log_format,
     'web-max-workers=i' => \my $web_max_workers,
@@ -53,6 +54,9 @@ if ( $help ) {
 if ( $mysql ) {
     eval { require  GrowthForecast::Data::MySQL };
     die "Cannot load MySQL: $@" if $@;
+} elsif ( $pgsql ) {
+    eval { require  GrowthForecast::Data::Pg };
+    die "Cannot load Pg: $@" if $@;
 }
 
 my $root_dir = File::Basename::dirname(__FILE__);
@@ -98,6 +102,7 @@ $proclet->service(
             root_dir => $root_dir,
             data_dir => $data_dir,
             mysql => $mysql,
+            pgsql => $pgsql,
             float_number => $enable_float_number,
             rrdcached => $rrdcached,
             disable_subtract => $disable_subtract,
@@ -113,6 +118,7 @@ $proclet->service(
             root_dir => $root_dir,
             data_dir => $data_dir,
             mysql => $mysql,
+            pgsql => $pgsql,
             float_number => $enable_float_number,
             rrdcached => $rrdcached,
             disable_subtract => $disable_subtract,
@@ -129,6 +135,7 @@ $proclet->service(
             data_dir => $data_dir,
             short => !$disable_short,
             mysql => $mysql,
+            pgsql => $pgsql,
             float_number => $enable_float_number,
             rrdcached => $rrdcached,
             disable_subtract => $disable_subtract,
@@ -290,8 +297,13 @@ Default is "0" (disabled)
 
 =item --with-mysql
 
-DB connection setting to store  metadata. format like dbi:mysql:[dbname];hostname=[hostnaem]
+DB connection setting to store  metadata. format like dbi:mysql:[dbname];hostname=[hostname]
 Default is no mysql setting. GrowthForecast save metadata to SQLite
+
+=item --with-pgsql
+
+DB connection setting to store  metadata. format like dbi:Pg:database=[dbname];hostname=[hostname]
+Default is no pgsql setting.
 
 =item --web-max-workers
 
