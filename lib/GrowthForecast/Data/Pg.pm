@@ -205,7 +205,7 @@ EOF
             my $columns = $sth->fetchall_arrayref(+{ COLUMN_NAME => 1 });
             my %graphs_columns;
             $graphs_columns{$_->{COLUMN_NAME}} = 1 for @$columns;
-            if ( ! exists $graphs_columns{timestamp} ) {
+            if ( ! exists $graphs_columns{'"timestamp"'} ) {
                 infof("add new column 'timestamp'");
                 $dbh->do(q{ALTER TABLE graphs ADD timestamp BIGINT DEFAULT NULL});
             }
