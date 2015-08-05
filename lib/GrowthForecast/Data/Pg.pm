@@ -67,6 +67,7 @@ IF NOT EXISTS (
         meta         TEXT,
         created_at   BIGINT       NOT NULL,
         updated_at   BIGINT       NOT NULL,
+        timestamp    BIGINT       DEFAULT NULL,
         UNIQUE  (service_name, section_name, graph_name)
     );
 END IF;
@@ -163,7 +164,8 @@ IF NOT EXISTS (
         graph_path   VARCHAR(255) NOT NULL,
         time         BIGINT       NOT NULL,
         color        VARCHAR(255) NOT NULL DEFAULT '#FF0000',
-        description  TEXT
+        description  TEXT,
+        dashes       VARCHAR(255) NOT NULL DEFAULT ''
     );
 END IF;
 
@@ -185,6 +187,29 @@ END IF;
 
 END\$\$
 EOF
+
+        {
+            my $sth = $dbh->column_info(undef,undef,"vrules",undef);
+            my $columns = $sth->fetchall_arrayref(+{ COLUMN_NAME => 1 });
+            my %graphs_columns;
+            $graphs_columns{$_->{COLUMN_NAME}} = 1 for @$columns;
+            if ( ! exists $graphs_columns{dashes} ) {
+                infof("add new column 'dashes'");
+                $dbh->do(q{ALTER TABLE vrules ADD dashes VARCHAR(255) NOT NULL DEFAULT ''});
+            }
+        }
+
+        # timestamp
+        {
+            my $sth = $dbh->column_info(undef,undef,"graphs",undef);
+            my $columns = $sth->fetchall_arrayref(+{ COLUMN_NAME => 1 });
+            my %graphs_columns;
+            $graphs_columns{$_->{COLUMN_NAME}} = 1 for @$columns;
+            if ( ! exists $graphs_columns{timestamp} ) {
+                infof("add new column 'timestamp'");
+                $dbh->do(q{ALTER TABLE graphs ADD timestamp BIGINT DEFAULT NULL});
+            }
+        }
 
         return;
     };

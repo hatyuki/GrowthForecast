@@ -10,7 +10,9 @@ use GrowthForecast::Data;
 use GrowthForecast::RRD;
 use Log::Minimal;
 use Class::Accessor::Lite ( rw => [qw/short mysql pgsql data_dir float_number rrdcached disable_subtract/] );
-use CGI;
+use URI::Escape qw/uri_escape_utf8/;
+
+my $_JSON = JSON->new()->allow_blessed(1)->convert_blessed(1)->ascii(1);
 
 sub data {
     my $self = shift;
@@ -96,7 +98,7 @@ sub delete_graph {
 
     $c->render_json({
         error => 0,
-        location => "".$c->req->uri_for(sprintf('/list/%s/%s', map { CGI::escape($c->stash->{graph}->{$_}) } qw/service_name section_name/))
+        location => "".$c->req->uri_for(sprintf('/list/%s/%s', map { uri_escape_utf8($c->stash->{graph}->{$_}) } qw/service_name section_name/))
     });
 };
 
@@ -106,9 +108,25 @@ sub delete_complex {
 
     $c->render_json({
         error => 0,
-        location => "". $c->req->uri_for(sprintf('/list/%s/%s', map { CGI::escape($c->stash->{complex}->{$_}) } qw/service_name section_name/))
+        location => "". $c->req->uri_for(sprintf('/list/%s/%s', map { uri_escape_utf8($c->stash->{complex}->{$_}) } qw/service_name section_name/))
     });
 };
+
+sub delete_complex_with_graph {
+    my ( $self, $c ) = @_;
+
+    # delete graphs
+    foreach my $id ($c->stash->{complex}->{'path-1'}, @{$c->stash->{complex}->{'path-2'}}) {
+        my $graph = $self->data->get_by_id( $id );
+        next unless $graph;
+
+        $self->data->remove($graph->{id});
+        $self->rrd->remove($graph);
+    }
+
+    # delete complex
+    $self->delete_complex( $c );
+}
 
 get '/' => sub {
     my ( $self, $c )  = @_;
@@ -133,14 +151,19 @@ get '/docs' => sub {
 
 get '/add_complex' => sub {
     my ( $self, $c )  = @_;
-    my $graphs = $self->data->get_all_graph_name();
-    $c->render('add_complex.tx',{ graphs => $graphs, disable_subtract => $self->disable_subtract });
+
+    $c->render('add_complex.tx',{ service_tree => $self->data->get_all_graph_as_tree(),
+                                  disable_subtract => $self->disable_subtract });
 };
 
 get '/edit_complex/:complex_id' => [qw/get_complex/] => sub {
     my ( $self, $c )  = @_;
-    my $graphs = $self->data->get_all_graph_name();
-    $c->render('edit_complex.tx',{ graphs => $graphs, disable_subtract => $self->disable_subtract });
+    my $path1 = $self->data->get_by_id($c->stash->{complex}->{'path-1'});
+    $c->stash->{complex}->{'path-1-service'} = $path1->{service_name};
+    $c->stash->{complex}->{'path-1-section'} = $path1->{section_name};
+
+    $c->render('edit_complex.tx',{service_tree => $self->data->get_all_graph_as_tree,
+                                  disable_subtract => $self->disable_subtract });
 };
 
 post '/delete_complex/:complex_id' => [qw/get_complex/] => sub {
@@ -268,7 +291,7 @@ post '/add_complex' => sub {
 
     $c->render_json({
         error => 0,
-        location => $c->req->uri_for('/list/'.CGI::escape($result->valid('service_name')).'/'.CGI::escape($result->valid('section_name')))->as_string,
+        location => $c->req->uri_for('/list/'.uri_escape_utf8($result->valid('service_name')).'/'.uri_escape_utf8($result->valid('section_name')))->as_string,
     });
 };
 
@@ -373,7 +396,7 @@ post '/edit_complex/:complex_id' => [qw/get_complex/] => sub {
 
     $c->render_json({
         error => 0,
-        location => $c->req->uri_for( sprintf '/view_complex/%s/%s/%s', CGI::escape($result->valid('service_name')), CGI::escape($result->valid('section_name')), CGI::escape($result->valid('graph_name')) )->as_string,
+        location => $c->req->uri_for( sprintf '/view_complex/%s/%s/%s', uri_escape_utf8($result->valid('service_name')), uri_escape_utf8($result->valid('section_name')), uri_escape_utf8($result->valid('graph_name')) )->as_string,
     });
 };
 
@@ -548,6 +571,10 @@ sub graph_validator {
                 [['CHOICE',qw/0 1/],'invalid title flag'],
             ],
         },
+        'vertical_label' => {
+            default => '',
+            rule => [],
+        },
         'xgrid' => {
             default => '',
             rule => [],
@@ -568,6 +595,11 @@ sub graph_validator {
             default => '0',
             rule => [
                 [['CHOICE',qw/0 1/],'invalid rigid flag'],
+            ],
+        },
+        'units_exponent' => {
+            rule => [
+                [['CHOICE', map { $_ * 3 } -6 .. 6], 'invalid units exponent'],
             ],
         },
         'sumup' => {
@@ -839,7 +871,7 @@ post '/edit/:service_name/:section_name/:graph_name' => [qw/get_graph/] => sub {
 
     $c->render_json({
         error => 0,
-        location => $c->req->uri_for( sprintf '/view_graph/%s/%s/%s', CGI::escape($result->valid('service_name')), CGI::escape($result->valid('section_name')), CGI::escape($result->valid('graph_name')) )->as_string
+        location => $c->req->uri_for( sprintf '/view_graph/%s/%s/%s', uri_escape_utf8($result->valid('service_name')), uri_escape_utf8($result->valid('section_name')), uri_escape_utf8($result->valid('graph_name')) )->as_string
     });
 };
 
@@ -861,7 +893,7 @@ post '/delete/:service_name/:section_name' => [qw/set_enable_short/] => sub {
 
     $c->render_json({
         error => 0,
-        location => "".$c->req->uri_for(sprintf('/list/%s', CGI::escape($c->args->{service_name})))
+        location => "".$c->req->uri_for(sprintf('/list/%s', uri_escape_utf8($c->args->{service_name})))
     });
 };
 
@@ -896,6 +928,23 @@ post '/api/:service_name/:section_name/:graph_name' => sub {
                 [sub{ length($_[1]) == 0 || $_[1] =~ m!^#[0-9A-F]{6,8}$!i }, 'invalid color format'],
             ],
         },
+        'timestamp' => {
+            default => undef,
+            rule => [
+                # The timestamp is UNIX epoch time
+                # The timestamp of rrdcreate must be larger than 315360000 because of its bug.
+                # cf. https://lists.oetiker.ch/pipermail/rrd-users/2008-January.txt
+                # 10 is because I subtract 10 from the timestamp for rrdcreate as rrdcreate's default does (now - 10s).
+                # cf. http://oss.oetiker.ch/rrdtool/doc/rrdcreate.en.html
+                [sub{ !defined($_[1]) || ($_[1] =~ m!^\-?[\d]+$! && $_[1] > 315360010) }, '"timestamp" must be a INT number and greater than 315360010"']
+            ],
+        },
+        'datetime' => {
+            default => undef,
+            rule => [
+                [ sub { my $t = HTTP::Date::str2time($_[1]); !defined($_[1]) || (defined($t) && $t > 315360010) }, "invalid datetime format or not later than '1979-12-30 00:00:10 UTC'" ]
+            ],
+        },
     ]);
 
     if ( $result->has_error ) {
@@ -909,16 +958,18 @@ post '/api/:service_name/:section_name/:graph_name' => sub {
 
     my $row;
     eval {
+        my $timestamp = $result->valid('timestamp') || HTTP::Date::str2time($result->valid('datetime'));
         $row = $self->data->update(
             $c->args->{service_name}, $c->args->{section_name}, $c->args->{graph_name},
             $result->valid('number'), $result->valid('mode'), $result->valid('color'),
-            $result->valid('description')
+            $timestamp,
         );
     };
     if ( $@ ) {
-        die sprintf "Error:%s %s/%s/%s => %s,%s,%s", 
+        die sprintf "Error:%s %s/%s/%s => %s,%s,%s,%s,%s",
             $@, $c->args->{service_name}, $c->args->{section_name}, $c->args->{graph_name},
-                $result->valid('number'), $result->valid('mode'), $result->valid('color');
+                $result->valid('number'), $result->valid('mode'), $result->valid('color'),
+                $result->valid('timestamp'), $result->valid('datetime');
     }
     
     my @descriptions = $c->req->param('description');
@@ -1036,11 +1087,17 @@ post '/json/delete/graph/:service_name/:section_name/:graph_name' => [qw/get_gra
 
 post '/json/delete/complex/:service_name/:section_name/:graph_name' => sub {
     my ( $self, $c )  = @_;
+    $c->env->{'kossy.request.parse_json_body'} = 1;
+
     my $complex = $self->data->get_complex( $c->args->{service_name}, $c->args->{section_name}, $c->args->{graph_name} );
     $c->halt(404) unless $complex;
     $c->stash->{complex} = $complex;
 
-    $self->delete_complex( $c );
+    if( $c->req->param('delete_graph') ) {
+        $self->delete_complex_with_graph( $c );
+    } else {
+        $self->delete_complex( $c );
+    }
 };
 
 post '/json/delete/graph/:id' => sub {
@@ -1055,7 +1112,13 @@ post '/json/delete/graph/:id' => sub {
 # alias to /delete_complex/:complex_id
 post '/json/delete/complex/:complex_id' => [qw/get_complex/] => sub {
     my ( $self, $c ) = @_;
-    $self->delete_complex( $c );
+    $c->env->{'kossy.request.parse_json_body'} = 1;
+
+    if( $c->req->param('delete_graph') ) {
+        $self->delete_complex_with_graph( $c );
+    } else {
+        $self->delete_complex( $c );
+    }
 };
 
 get '/json/graph/:id' => sub {
@@ -1086,6 +1149,11 @@ get '/json/list/all' => sub {
     my ( $self, $c ) = @_;
     my @list = map { $self->graph4json($_) } @{ $self->data->get_all_graph_all() }, @{ $self->data->get_all_complex_graph_all() };
     $c->render_json( \@list );
+};
+
+get '/json/list/graph_tree' => sub {
+    my ( $self, $c )  = @_;
+    $c->render_json($self->data->get_all_graph_as_tree());
 };
 
 # TODO in create/edit, validations about json object properties, sub graph id existense, ....
@@ -1129,7 +1197,7 @@ post '/json/create/complex' => sub {
     );
     $c->render_json({
         error => 0,
-        location => $c->req->uri_for('/list/'.CGI::escape($spec->{service_name}).'/'.CGI::escape($spec->{section_name}))->as_string,
+        location => $c->req->uri_for('/list/'.uri_escape_utf8($spec->{service_name}).'/'.uri_escape_utf8($spec->{section_name}))->as_string,
     });
 };
 
@@ -1207,6 +1275,10 @@ sub add_vrule {
             default => '',
             rule => [],
         },
+        'dashes' => {
+            default => '',
+            rule => [],
+        },
     ]);
 
     if ( $result->has_error ) {
@@ -1226,6 +1298,7 @@ sub add_vrule {
             $result->valid('time'),
             $result->valid('color'),
             $result->valid('description'),
+            $result->valid('dashes'),
         );
     };
     if ( $@ ) {

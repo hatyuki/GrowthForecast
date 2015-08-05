@@ -22,8 +22,10 @@ sub path_param {
     my $data = shift;
 
     my $dst = $data->{mode} eq 'derive' ? 'DERIVE' : 'GAUGE';
+    my $timestamp = $data->{timestamp} || time;
 
     my @param = (
+        '--start', $timestamp - 10, # -10 as rrdcreate's default does (now - 10s)
         '--step', '300',
         "DS:num:${dst}:600:U:U",
         'RRA:AVERAGE:0.5:1:1440',  #5分, 5日
@@ -64,8 +66,10 @@ sub path_short_param {
     my $data = shift;
 
     my $dst = $data->{mode} eq 'derive' ? 'DERIVE' : 'GAUGE';
+    my $timestamp = $data->{timestamp} || time;
 
     my @param = (
+        '--start', $timestamp - 10, # -10 as rrdcreate's default does (now - 10s)
         '--step', '60',
         "DS:num:${dst}:120:U:U",
         'RRA:AVERAGE:0.5:1:4800',  #1分, 3日(80時間)
@@ -100,16 +104,17 @@ sub update_param {
     my $data = shift;
 
     my @param;
+    my $timestamp = $data->{timestamp} || 'N';
     if ( $self->{disable_subtract} ) {
         @param = (
             '-t', 'num',
-            '--', join(':','N',$data->{number}),
+            '--', join(':',$timestamp,$data->{number}),
         );
     }
     else {
         @param = (
             '-t', 'num:sub',
-            '--', join(':','N',$data->{number},$data->{subtract}),
+            '--', join(':',$timestamp,$data->{number},$data->{subtract}),
         );
     }
     if ( $self->{rrdcached} ) {
@@ -129,7 +134,14 @@ sub update {
         my @param = $self->update_param($data);
         RRDs::update($file, @param);
         my $ERR=RRDs::error;
-        die $ERR if $ERR;
+        if ( $ERR ) {
+            if ( $ERR =~ /illegal attempt to update using time.*when last update time is.*minimum one second step/ ) {
+                debugf "update rrdfile failed: $ERR";
+            }
+            else {
+                die $ERR;
+            }
+        }
     };
     die "udpate rrdfile failed: $@" if $@;
 }
@@ -139,16 +151,17 @@ sub update_short_param {
     my $data = shift;
 
     my @param;
+    my $timestamp = $data->{timestamp} || 'N';
     if ( $self->{disable_subtract} ) {
         @param = (
             '-t', 'num',
-            '--', join(':','N',$data->{number}),
+            '--', join(':',$timestamp,$data->{number}),
         );
     }
     else {
         @param = (
             '-t', 'num:sub',
-            '--', join(':','N',$data->{number},$data->{subtract_short}),
+            '--', join(':',$timestamp,$data->{number},$data->{subtract_short}),
         );
     }
     if ( $self->{rrdcached} ) {
@@ -168,7 +181,14 @@ sub update_short {
         my @param = $self->update_short_param($data);
         RRDs::update($file, @param);
         my $ERR=RRDs::error;
-        die $ERR if $ERR;
+        if ( $ERR ) {
+            if ( $ERR =~ /illegal attempt to update using time.*when last update time is.*minimum one second step/ ) {
+                debugf "update rrdfile failed: $ERR";
+            }
+            else {
+                die $ERR;
+            }
+        }
     };
     die "udpate rrdfile failed: $@" if $@;
 }
@@ -271,7 +291,7 @@ sub graph {
     my $datas = shift;
     my @datas = ref($datas) eq 'ARRAY' ? @$datas : ($datas);
     my $args = shift;
-    my ($a_gmode, $span, $from, $to, $width, $height) = map { $args->{$_} } qw/gmode t from to width height/;
+    my ($a_gmode, $span, $from, $to, $width, $height, $cf) = map { $args->{$_} } qw/gmode t from to width height cf/;
     $span ||= 'd';
     $width ||= 390;
     $height ||= 110;
@@ -304,6 +324,7 @@ sub graph {
 
     push @opt, '-y', $args->{ygrid} if $args->{ygrid};
     push @opt, '-t', "$period_title" if !$args->{notitle};
+    push @opt, '-v', $args->{vertical_label} if $args->{vertical_label};
     push @opt, '--no-legend' if !$args->{legend};
     push @opt, '--only-graph' if $args->{graphonly};
     push @opt, '--logarithmic' if $args->{logarithmic};
@@ -312,6 +333,7 @@ sub graph {
     push @opt, '-u', $args->{upper_limit} if defined $args->{upper_limit};
     push @opt, '-l', $args->{lower_limit} if defined $args->{lower_limit};
     push @opt, '-r' if $args->{rigid};
+    push @opt, '--units-exponent', $args->{units_exponent} if defined $args->{units_exponent};
 
     my $i=0;
     my @defs;
@@ -326,7 +348,7 @@ sub graph {
         my $unit = $data->{unit};
         $unit =~ s!%!%%!;
         push @opt, 
-            sprintf('DEF:%s%dt=%s:%s:AVERAGE', $gdata, $i, $file, $gdata),
+            sprintf('DEF:%s%dt=%s:%s:%s', $gdata, $i, $file, $gdata, $cf),
             sprintf('CDEF:%s%d=%s%dt,%s,%s,LIMIT,%d,%s', $gdata, $i, $gdata, $i, $llimit, $ulimit, $data->{adjustval}, $data->{adjust}),
             sprintf('%s:%s%d%s:%s %s', $type, $gdata, $i, $data->{color}, $self->_escape($data->{graph_name}), $stack),
             sprintf('GPRINT:%s%d:LAST:Cur\: %%4.1lf%%s%s', $gdata, $i, $unit),
@@ -368,7 +390,7 @@ sub graph {
 
     my %same_vrule;
     for my $vrule ($self->{data}->get_vrule($span, $period, $end, '/'.join('/',@{$datas[0]}{qw(service_name section_name graph_name)}))) {
-        my $desc;
+        my $desc = "";
         if ($vrule->{description}) {
             my $k = $vrule->{color}.'/'.$vrule->{description};
             unless ($same_vrule{$k}) {
@@ -381,7 +403,8 @@ sub graph {
         push @opt, join(":",
                         'VRULE',
                         join("", $vrule->{time}, $vrule->{color}),
-                        ($args->{vrule_legend} ? ($desc||()) : ()),
+                        ($args->{vrule_legend} ? $desc : ""),
+                        ($vrule->{dashes} ? 'dashes='.$vrule->{dashes} : ()),
                     );
     }
     push @opt, 'COMMENT:\n';

@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS graphs (
     meta         TEXT,
     created_at   UNSIGNED INT NOT NULL,
     updated_at   UNSIGNED INT NOT NULL,
+    timestamp    UNSIGNED INT DEFAULT NULL,
     UNIQUE  (service_name, section_name, graph_name)
 )
 EOF
@@ -121,12 +122,38 @@ CREATE TABLE IF NOT EXISTS vrules (
     graph_path   VARCHAR(255) NOT NULL,
     time         INT UNSIGNED NOT NULL,
     color        VARCHAR(255) NOT NULL DEFAULT '#FF0000',
-    description  TEXT
+    description  TEXT,
+    dashes       VARCHAR(255) NOT NULL DEFAULT ''
 )
 EOF
         $dbh->do(<<EOF);
 CREATE INDEX IF NOT EXISTS time_graph_path on vrules (time, graph_path)
 EOF
+
+        {
+            $dbh->begin_work;
+            my $columns = $dbh->select_all(q{PRAGMA table_info("vrules")});
+            my %graphs_columns;
+            $graphs_columns{$_->{name}} = 1 for @$columns;
+            if ( ! exists $graphs_columns{dashes} ) {
+                infof("add new column 'dashes'");
+                $dbh->do(q{ALTER TABLE vrules ADD dashes VARCHAR(255) NOT NULL DEFAULT ''});
+            }
+            $dbh->commit;
+        }
+
+        # timestamp
+        {
+            $dbh->begin_work;
+            my $columns = $dbh->select_all(q{PRAGMA table_info("graphs")});
+            my %graphs_columns;
+            $graphs_columns{$_->{name}} = 1 for @$columns;
+            if ( ! exists $graphs_columns{timestamp} ) {
+                infof("add new column 'timestamp'");
+                $dbh->do(q{ALTER TABLE graphs ADD timestamp UNSIGNED INT DEFAULT NULL});
+            }
+            $dbh->commit;
+        }
 
         return;
     };
@@ -277,7 +304,7 @@ sub get_by_id_for_rrdupdate {
 }
 
 sub update {
-    my ($self, $service, $section, $graph, $number, $mode, $color ) = @_;
+    my ($self, $service, $section, $graph, $number, $mode, $color, $timestamp ) = @_;
     my $dbh = $self->dbh;
     $dbh->begin_work;
 
@@ -294,8 +321,8 @@ sub update {
         if ( $mode ne 'modified' || ($mode eq 'modified' && $data->{number} != $number) ) {
             $color ||= $data->{color};
             $dbh->query(
-                'UPDATE graphs SET number=?, mode=?, color=?, updated_at=? WHERE id = ?',
-                $number, $mode, $color, time, $data->{id}
+                'UPDATE graphs SET number=?, mode=?, color=?, updated_at=?, timestamp=? WHERE id = ?',
+                $number, $mode, $color, time, $timestamp, $data->{id}
             );
         }
     }
@@ -303,10 +330,10 @@ sub update {
         my @colors = List::Util::shuffle(qw/33 66 99 cc/);
         $color ||= '#' . join('', splice(@colors,0,3));
         $dbh->query(
-            'INSERT INTO graphs (service_name, section_name, graph_name, number, mode, color, llimit, sllimit, created_at, updated_at) 
-                         VALUES (?,?,?,?,?,?,?,?,?,?)',
-            $service, $section, $graph, $number, $mode, $color, -1000000000, -100000 ,time, time
-        ); 
+            'INSERT INTO graphs (service_name, section_name, graph_name, number, mode, color, llimit, sllimit, created_at, updated_at, timestamp)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+            $service, $section, $graph, $number, $mode, $color, -1000000000, -100000 , time, time, $timestamp
+        );
     }
 
     my $row = $self->dbh->select_row(
@@ -414,6 +441,28 @@ sub get_all_graph_all {
     my @ret = map { $self->inflate_row($_) } @$list;
     \@ret;
 }
+
+sub get_all_graph_as_tree {
+    my ( $self )  = @_;
+    my $graphs = $self->get_all_graph_name();
+    my %services;
+    my @services;
+    for my $row ( @$graphs ) {
+        push @{$services{$row->{service_name}}->{$row->{section_name}}}, $row; 
+    }
+    for my $service_name ( sort { lc($a) cmp lc($b) } keys %services ) {
+        my @sections = map {{
+            name => $_,
+            graphs => $services{$service_name}->{$_}
+        }} sort { lc($a) cmp lc($b) } keys %{$services{$service_name}};
+        push @services, {
+            name => $service_name,
+            sections => \@sections
+        }
+    }
+    return \@services;
+}
+
 
 sub remove {
     my ($self, $id ) = @_;
@@ -547,16 +596,16 @@ sub get_all_complex_graph_all {
 }
 
 sub update_vrule {
-    my ($self, $graph_path, $time, $color, $desc) = @_;
+    my ($self, $graph_path, $time, $color, $desc, $dashes) = @_;
 
     $self->dbh->query(
-        'INSERT INTO vrules (graph_path,time,color,description) values (?,?,?,?)',
-        $graph_path, $time, $color, $desc
+        'INSERT INTO vrules (graph_path,time,color,description,dashes) values (?,?,?,?,?)',
+        $graph_path, $time, $color, $desc, $dashes,
     );
 
    my $row = $self->dbh->select_row(
-        'SELECT * FROM vrules WHERE graph_path = ? AND time = ? AND color = ? AND description = ?',
-        $graph_path, $time, $color, $desc,
+        'SELECT * FROM vrules WHERE graph_path = ? AND time = ? AND color = ? AND description = ? AND dashes = ?',
+        $graph_path, $time, $color, $desc, $dashes,
     );
 
     return $row;
